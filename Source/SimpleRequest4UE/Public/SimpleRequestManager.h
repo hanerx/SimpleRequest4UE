@@ -26,6 +26,12 @@ public:
 		}
 		return SimpleRequestManager;
 	}
+
+	UFUNCTION(BlueprintCallable,Category="SimpleRequest|Misc")
+	static bool HasWifiConnection()
+	{
+		return FGenericPlatformMisc::HasActiveWiFiConnection();
+	}
 	
 public:
 	UFUNCTION(BlueprintCallable,Category="SimpleRequest|Manager")

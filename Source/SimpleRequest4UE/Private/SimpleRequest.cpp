@@ -9,11 +9,15 @@ USimpleRequest::USimpleRequest()
 
 USimpleRequest::~USimpleRequest()
 {
+	if(Status<=Downloading)
+	{
+		Cancel();
+	}
 }
 
 void USimpleRequest::Reset()
 {
-	Status=Init;
+	Status = Init;
 	CacheData.Empty();
 }
 
@@ -29,6 +33,15 @@ void USimpleRequest::Pause()
 {
 }
 
+bool USimpleRequest::Retry()
+{
+	if (Status<=Downloading || Status>=EndOfStatus || FailedTime >= MAX_FAILURE_TIMES)
+	{
+		return false;
+	}
+	return false;
+}
+
 FString USimpleRequest::GetDownloadContentAsString()
 {
 	FString OutString;
@@ -38,9 +51,9 @@ FString USimpleRequest::GetDownloadContentAsString()
 TArray<uint8> USimpleRequest::GetDownloadContent()
 {
 	TArray<uint8> OutData;
-	if(Status==Success)
+	if (Status == Success)
 	{
-		if(!FFileHelper::LoadFileToArray(OutData,*GetFullSavePath()))
+		if (!FFileHelper::LoadFileToArray(OutData, *GetFullSavePath()))
 		{
 		}
 	}
@@ -49,27 +62,28 @@ TArray<uint8> USimpleRequest::GetDownloadContent()
 
 bool USimpleRequest::DumpCacheToFile()
 {
-	if(!FPaths::DirectoryExists(SavePath))
+	if (!FPaths::DirectoryExists(SavePath))
 	{
-		if(!FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*SavePath))
+		if (!FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*SavePath))
 		{
-			
 			return false;
 		}
 	}
-	if(!FFileHelper::SaveArrayToFile(TArray<uint8>(),*GetFullSavePath()))
+	if (!FFileHelper::SaveArrayToFile(TArray<uint8>(), *GetFullSavePath()))
 	{
 		return false;
 	}
 
 	CacheData.StableSort();
-	for(const auto& FrameStruct:CacheData)
+	for (const auto& FrameStruct : CacheData)
 	{
-		if(!FrameStruct.IsValid()||FPlatformFileManager::Get().GetPlatformFile().FileSize(*GetFullSavePath())!=FrameStruct.StartOffset)
+		if (!FrameStruct.IsValid() || FPlatformFileManager::Get().GetPlatformFile().FileSize(*GetFullSavePath()) !=
+			FrameStruct.StartOffset)
 		{
 			return false;
 		}
-		if(!FFileHelper::SaveArrayToFile(FrameStruct.FrameData,*GetFullSavePath(),&IFileManager::Get(),EFileWrite::FILEWRITE_Append))
+		if (!FFileHelper::SaveArrayToFile(FrameStruct.FrameData, *GetFullSavePath(), &IFileManager::Get(),
+		                                  EFileWrite::FILEWRITE_Append))
 		{
 			return false;
 		}

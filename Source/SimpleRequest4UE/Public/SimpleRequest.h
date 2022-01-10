@@ -8,6 +8,7 @@
 
 #define MAX_THREAT_FOR_REQUEST 4
 #define FRAME_LENGTH 10485760
+#define MAX_FAILURE_TIMES 3
 
 UENUM(BlueprintType)
 enum ERequestStatus
@@ -18,6 +19,7 @@ enum ERequestStatus
 	Downloading,
 	Success,
 	Failed,
+	Canceled,
 	EndOfStatus
 };
 
@@ -89,6 +91,9 @@ public:
 
 	UFUNCTION(BlueprintCallable,Category="SimpleRequest|Download")
 	void Pause();
+	
+	UFUNCTION(BlueprintCallable,Category="SimpleRequest|Download")
+	bool Retry();
 
 	UFUNCTION(BlueprintCallable,Category="SimpleRequest|Data")
 	FString GetDownloadContentAsString();
@@ -135,4 +140,5 @@ private:
 	TArray<FFrameStruct> CacheData;
 
 	ERequestStatus Status;
+	int32 FailedTime;
 };
