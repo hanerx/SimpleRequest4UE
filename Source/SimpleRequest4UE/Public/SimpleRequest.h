@@ -9,7 +9,7 @@
 #define MAX_THREAT_FOR_REQUEST 4
 #define FRAME_LENGTH 10485760
 
-UENUM()
+UENUM(BlueprintType)
 enum ERequestStatus
 {
 	Init,
@@ -31,6 +31,38 @@ struct FFrameStruct
 public:
 	int64 StartOffset;
 	int64 EndOffset;
+	TArray<uint8> FrameData;
+public:
+	friend bool operator==(const FFrameStruct& Lhs, const FFrameStruct& RHS)
+	{
+		return Lhs.StartOffset == RHS.StartOffset
+			&& Lhs.EndOffset == RHS.EndOffset;
+	}
+
+	friend bool operator!=(const FFrameStruct& Lhs, const FFrameStruct& RHS)
+	{
+		return !(Lhs == RHS);
+	}
+
+	friend bool operator<(const FFrameStruct& Lhs, const FFrameStruct& RHS)
+	{
+		return Lhs.StartOffset<RHS.StartOffset;
+	}
+	
+	friend bool operator>(const FFrameStruct& Lhs, const FFrameStruct& RHS)
+	{
+		return Lhs.StartOffset>RHS.StartOffset;
+	}
+
+	FString ToString() const
+	{
+		return FString::Printf(TEXT("bytes=%lld-%lld"),StartOffset,EndOffset);
+	}
+
+	bool IsValid() const
+	{
+		return StartOffset<EndOffset;
+	}
 };
 
 /**
@@ -82,11 +114,25 @@ public:
 	
 	UFUNCTION(BlueprintCallable,Category="SimpleRequest|Setting")
 	FORCEINLINE FString GetURL() const {return URL;}
+
+	UFUNCTION(BlueprintCallable,Category="SimpleRequest|Setting")
+	FORCEINLINE FString GetFullSavePath() const {return SavePath/FileName;}
+
+	UFUNCTION(BlueprintCallable,Category="SimpleRequest|Setting")
+	FORCEINLINE ERequestStatus GetStatus() const {return Status;}
+
+protected:
+	bool DumpCacheToFile();
 	
 private:
 	bool bDownloadToFile;
 	FString SavePath;
+	FString FileName;
 
 	int32 FrameLength=FRAME_LENGTH;
 	FString URL;
+
+	TArray<FFrameStruct> CacheData;
+
+	ERequestStatus Status;
 };

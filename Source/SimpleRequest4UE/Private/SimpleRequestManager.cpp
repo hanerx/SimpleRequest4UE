@@ -42,9 +42,8 @@ bool USimpleRequestManager::AddRequest(const FString& InURL, FString& OutGuid)
 bool USimpleRequestManager::AddRequest(const FString& InURL, FGuid& OutGuid)
 {
 	FPlatformMisc::CreateGuid(OutGuid);
-	USimpleRequest* SimpleRequest=NewObject<USimpleRequest>();
+	USimpleRequest* SimpleRequest=Requests.Add(OutGuid,NewObject<USimpleRequest>());
 	SimpleRequest->SetURL(InURL);
 	SimpleRequest->AddToRoot();
-	Requests.Add(OutGuid,SimpleRequest);
-	return false;
+	return true;
 }
