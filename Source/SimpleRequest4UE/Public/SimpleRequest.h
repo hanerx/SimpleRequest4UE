@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Interfaces/IHttpRequest.h"
 #include "UObject/Object.h"
 #include "SimpleRequest.generated.h"
 
@@ -128,6 +129,11 @@ public:
 
 protected:
 	bool DumpCacheToFile();
+	void StartMainDownload();
+	void StartHeadDownload();
+	void OnHeadRequestHeaderReceived(FHttpRequestPtr Request, const FString& HeaderName, const FString& NewHeaderValue);
+	void OnHeadRequestComplete(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bConnectedSuccessfully);
+	void SetStatusToFail();
 	
 private:
 	bool bDownloadToFile;
@@ -135,10 +141,16 @@ private:
 	FString FileName;
 
 	int32 FrameLength=FRAME_LENGTH;
+	int32 MaxThreat=MAX_THREAT_FOR_REQUEST;
 	FString URL;
 
 	TArray<FFrameStruct> CacheData;
 
 	ERequestStatus Status;
 	int32 FailedTime;
+	
+	TSharedPtr<IHttpRequest,ESPMode::ThreadSafe> HeadRequest;
+	TArray<TSharedPtr<IHttpRequest,ESPMode::ThreadSafe>> DownloadingRequests;
+
+	int64 TotalSize;
 };

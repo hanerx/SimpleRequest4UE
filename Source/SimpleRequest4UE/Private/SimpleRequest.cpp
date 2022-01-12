@@ -3,6 +3,8 @@
 
 #include "SimpleRequest.h"
 
+#include "HttpModule.h"
+
 USimpleRequest::USimpleRequest()
 {
 }
@@ -73,21 +75,79 @@ bool USimpleRequest::DumpCacheToFile()
 	{
 		return false;
 	}
-
+	int32 Index = -1;
 	CacheData.StableSort();
-	for (const auto& FrameStruct : CacheData)
+	for (int32 i=0;i<CacheData.Num();i++)
 	{
+		FFrameStruct& FrameStruct=CacheData[i];
 		if (!FrameStruct.IsValid() || FPlatformFileManager::Get().GetPlatformFile().FileSize(*GetFullSavePath()) !=
 			FrameStruct.StartOffset)
 		{
-			return false;
+			break;
 		}
 		if (!FFileHelper::SaveArrayToFile(FrameStruct.FrameData, *GetFullSavePath(), &IFileManager::Get(),
 		                                  EFileWrite::FILEWRITE_Append))
 		{
-			return false;
+			break;
 		}
+		Index=i;
 	}
-	CacheData.Empty();
+	if(Index<0)
+	{
+		return false;
+	}
+	CacheData.RemoveAtSwap(Index);
 	return true;
+}
+
+void USimpleRequest::StartMainDownload()
+{
+	while(DownloadingRequests.Num()<MaxThreat)
+	{
+		const TSharedPtr<IHttpRequest,ESPMode::ThreadSafe> FrameRequest=FHttpModule::Get().CreateRequest();
+		FrameRequest->SetURL(URL);
+		FrameRequest->SetVerb(TEXT("GET"));
+		FrameRequest->OnProcessRequestComplete();
+		FrameRequest->OnRequestProgress();
+		DownloadingRequests.Add(FrameRequest);
+		FrameRequest->ProcessRequest();
+	}
+}
+
+void USimpleRequest::StartHeadDownload()
+{
+	HeadRequest=FHttpModule::Get().CreateRequest();
+	HeadRequest->SetURL(URL);
+	HeadRequest->SetVerb(TEXT("HEAD"));
+	HeadRequest->OnHeaderReceived().BindUObject(this,&USimpleRequest::OnHeadRequestHeaderReceived);
+	HeadRequest->OnProcessRequestComplete().BindUObject(this,&USimpleRequest::OnHeadRequestComplete);
+	HeadRequest->ProcessRequest();
+}
+
+void USimpleRequest::OnHeadRequestHeaderReceived(FHttpRequestPtr Request, const FString& HeaderName,
+	const FString& NewHeaderValue)
+{
+	if(HeaderName==TEXT("Content-Length"))
+	{
+		TotalSize=FCString::Atoi64(*NewHeaderValue);
+	}
+}
+
+void USimpleRequest::OnHeadRequestComplete(FHttpRequestPtr Request, FHttpResponsePtr Response,
+	bool bConnectedSuccessfully)
+{
+	if(bConnectedSuccessfully)
+	{
+		HeadRequest.Reset();
+		StartMainDownload();
+	}else
+	{
+		SetStatusToFail();
+	}
+}
+
+void USimpleRequest::SetStatusToFail()
+{
+	Status=Failed;
+	FailedTime++;
 }
