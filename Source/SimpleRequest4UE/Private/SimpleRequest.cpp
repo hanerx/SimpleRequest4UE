@@ -11,7 +11,7 @@ USimpleRequest::USimpleRequest()
 
 USimpleRequest::~USimpleRequest()
 {
-	if(Status<=Downloading)
+	if (Status <= Downloading)
 	{
 		Cancel();
 	}
@@ -21,14 +21,42 @@ void USimpleRequest::Reset()
 {
 	Status = Init;
 	CacheData.Empty();
+	for (auto Request : DownloadingRequests)
+	{
+		Request.Reset();
+	}
+	DownloadingRequests.Empty();
+	HeadRequest.Reset();
 }
 
 void USimpleRequest::StartDownload()
 {
+	if (TotalSize == 0)
+	{
+		StartHeadDownload();
+	}
+	else
+	{
+		StartMainDownload();
+	}
 }
 
 void USimpleRequest::Cancel()
 {
+	Status = Canceled;
+	for (auto Request : DownloadingRequests)
+	{
+		if (Request && Request.IsValid())
+		{
+			Request->CancelRequest();
+		}
+	}
+	if (HeadRequest && HeadRequest.IsValid())
+	{
+		HeadRequest->CancelRequest();
+	}
+	DumpCacheToFile();
+	CacheData.Empty();
 }
 
 void USimpleRequest::Pause()
@@ -37,7 +65,7 @@ void USimpleRequest::Pause()
 
 bool USimpleRequest::Retry()
 {
-	if (Status<=Downloading || Status>=EndOfStatus || FailedTime >= MAX_FAILURE_TIMES)
+	if (Status <= Downloading || Status >= EndOfStatus || FailedTime >= MAX_FAILURE_TIMES)
 	{
 		return false;
 	}
@@ -77,9 +105,9 @@ bool USimpleRequest::DumpCacheToFile()
 	}
 	int32 Index = -1;
 	CacheData.StableSort();
-	for (int32 i=0;i<CacheData.Num();i++)
+	for (int32 i = 0; i < CacheData.Num(); i++)
 	{
-		FFrameStruct& FrameStruct=CacheData[i];
+		FFrameStruct& FrameStruct = CacheData[i];
 		if (!FrameStruct.IsValid() || FPlatformFileManager::Get().GetPlatformFile().FileSize(*GetFullSavePath()) !=
 			FrameStruct.StartOffset)
 		{
@@ -90,9 +118,9 @@ bool USimpleRequest::DumpCacheToFile()
 		{
 			break;
 		}
-		Index=i;
+		Index = i;
 	}
-	if(Index<0)
+	if (Index < 0)
 	{
 		return false;
 	}
@@ -102,52 +130,83 @@ bool USimpleRequest::DumpCacheToFile()
 
 void USimpleRequest::StartMainDownload()
 {
-	while(DownloadingRequests.Num()<MaxThreat)
+	if(!LastFrame.IsValid())
 	{
-		const TSharedPtr<IHttpRequest,ESPMode::ThreadSafe> FrameRequest=FHttpModule::Get().CreateRequest();
+		LastFrame=FFrameStruct(GetDownloadContent().Num(),GetDownloadContent().Num()+FrameLength);
+	}
+	while (DownloadingRequests.Num() < MaxThreat && CacheData.Num() < MaxThreat&&LastFrame.IsValid())
+	{
+		const TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> FrameRequest = FHttpModule::Get().CreateRequest();
 		FrameRequest->SetURL(URL);
 		FrameRequest->SetVerb(TEXT("GET"));
-		FrameRequest->OnProcessRequestComplete();
-		FrameRequest->OnRequestProgress();
-		DownloadingRequests.Add(FrameRequest);
+		FrameRequest->SetHeader(TEXT("Range"),LastFrame.ToString());
+		int32 Index = DownloadingRequests.Add(FrameRequest);
+		FrameRequest->OnProcessRequestComplete().BindLambda(
+			[this,Index,FrameRequest](FHttpRequestPtr Request, FHttpResponsePtr Response, bool bConnectedSuccessfully)
+			{
+				this->OnFrameRequestComplete(LastFrame,Index, Request, Response, bConnectedSuccessfully);
+				FrameRequest->OnProcessRequestComplete().Unbind();
+				FrameRequest->OnRequestProgress().Unbind();
+			});
+		FrameRequest->OnRequestProgress().BindLambda(
+			[this,Index](FHttpRequestPtr Request, int32 BytesSent, int32 BytesReceived)
+			{
+				this->OnFrameRequestProcess(LastFrame,Index, Request, BytesSent, BytesReceived);
+			});
 		FrameRequest->ProcessRequest();
+		LastFrame=LastFrame.GetNextFrame(TotalSize,FrameLength);
 	}
 }
 
 void USimpleRequest::StartHeadDownload()
 {
-	HeadRequest=FHttpModule::Get().CreateRequest();
+	HeadRequest = FHttpModule::Get().CreateRequest();
 	HeadRequest->SetURL(URL);
 	HeadRequest->SetVerb(TEXT("HEAD"));
-	HeadRequest->OnHeaderReceived().BindUObject(this,&USimpleRequest::OnHeadRequestHeaderReceived);
-	HeadRequest->OnProcessRequestComplete().BindUObject(this,&USimpleRequest::OnHeadRequestComplete);
+	HeadRequest->OnHeaderReceived().BindUObject(this, &USimpleRequest::OnHeadRequestHeaderReceived);
+	HeadRequest->OnProcessRequestComplete().BindUObject(this, &USimpleRequest::OnHeadRequestComplete);
 	HeadRequest->ProcessRequest();
 }
 
 void USimpleRequest::OnHeadRequestHeaderReceived(FHttpRequestPtr Request, const FString& HeaderName,
-	const FString& NewHeaderValue)
+                                                 const FString& NewHeaderValue)
 {
-	if(HeaderName==TEXT("Content-Length"))
+	if (HeaderName == TEXT("Content-Length"))
 	{
-		TotalSize=FCString::Atoi64(*NewHeaderValue);
+		TotalSize = FCString::Atoi64(*NewHeaderValue);
 	}
 }
 
 void USimpleRequest::OnHeadRequestComplete(FHttpRequestPtr Request, FHttpResponsePtr Response,
-	bool bConnectedSuccessfully)
+                                           bool bConnectedSuccessfully)
 {
-	if(bConnectedSuccessfully)
+	if (bConnectedSuccessfully)
 	{
 		HeadRequest.Reset();
 		StartMainDownload();
-	}else
+	}
+	else
 	{
 		SetStatusToFail();
 	}
 }
 
+void USimpleRequest::OnFrameRequestComplete(FFrameStruct FrameStruct,int32 Index, FHttpRequestPtr Request, FHttpResponsePtr Response,
+	bool bConnectedSuccessfully)
+{
+	if(Response==nullptr)
+	{
+		SetStatusToFail();
+		
+	}
+}
+
+void USimpleRequest::OnFrameRequestProcess(FFrameStruct FrameStruct,int32 Index, FHttpRequestPtr Request, int32 BytesSent, int32 BytesReceived)
+{
+}
+
 void USimpleRequest::SetStatusToFail()
 {
-	Status=Failed;
+	Status = Failed;
 	FailedTime++;
 }
