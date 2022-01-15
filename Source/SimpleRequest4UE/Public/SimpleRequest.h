@@ -21,6 +21,7 @@ enum ERequestStatus
 	Success,
 	Failed,
 	Canceled,
+	WaitForDump,
 	EndOfStatus
 };
 
@@ -45,7 +46,10 @@ struct FFrameStruct
 public:
 	int64 StartOffset;
 	int64 EndOffset;
+	int32 CurrentSize;
 	TArray<uint8> FrameData;
+	TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> Request;
+	ERequestStatus FrameStatus = Init;
 public:
 	friend bool operator==(const FFrameStruct& Lhs, const FFrameStruct& RHS)
 	{
@@ -80,7 +84,7 @@ public:
 
 	FFrameStruct GetNextFrame(const int32 MaxSize, const int32 FrameLength = FRAME_LENGTH) const
 	{
-		if(StartOffset+FrameLength>=MaxSize)
+		if (StartOffset + FrameLength >= MaxSize)
 		{
 			return FFrameStruct();
 		}
@@ -118,10 +122,19 @@ public:
 	bool Retry();
 
 	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Data")
-	FString GetDownloadContentAsString();
+	FString GetDownloadContentAsString() const;
 
 	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Data")
-	TArray<uint8> GetDownloadContent();
+	TArray<uint8> GetDownloadContent() const;
+
+	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Data")
+	FORCEINLINE int64 GetTotalSize() const { return TotalSize; }
+
+	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Data")
+	int64 GetAlreadyDownloadedSize() const;
+
+	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Data")
+	FORCEINLINE float GetProgress() const { return TotalSize > 0 ? GetAlreadyDownloadedSize() / TotalSize : 0; }
 
 public:
 	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Setting")
@@ -152,12 +165,15 @@ protected:
 	bool DumpCacheToFile();
 	void StartMainDownload();
 	void StartHeadDownload();
+	void GenerateFrameStructs();
 	virtual void OnHeadRequestHeaderReceived(FHttpRequestPtr Request, const FString& HeaderName,
 	                                         const FString& NewHeaderValue);
 	virtual void OnHeadRequestComplete(FHttpRequestPtr Request, FHttpResponsePtr Response, bool bConnectedSuccessfully);
-	virtual void OnFrameRequestComplete(FFrameStruct FrameStruct,int32 Index, FHttpRequestPtr Request, FHttpResponsePtr Response,
+	virtual void OnFrameRequestComplete(FFrameStruct& FrameStruct, int32 Index, FHttpRequestPtr Request,
+	                                    FHttpResponsePtr Response,
 	                                    bool bConnectedSuccessfully);
-	virtual void OnFrameRequestProcess(FFrameStruct FrameStruct,int32 Index, FHttpRequestPtr Request, int32 BytesSent, int32 BytesReceived);
+	virtual void OnFrameRequestProcess(FFrameStruct& FrameStruct, int32 Index, FHttpRequestPtr Request, int32 BytesSent,
+	                                   int32 BytesReceived);
 	void SetStatusToFail();
 
 private:
@@ -169,15 +185,11 @@ private:
 	int32 MaxThreat = MAX_THREAT_FOR_REQUEST;
 	FString URL;
 
-	TArray<FFrameStruct> CacheData;
-
 	ERequestStatus Status;
 	int32 FailedTime;
 
 	TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> HeadRequest;
-	TArray<TSharedPtr<IHttpRequest, ESPMode::ThreadSafe>> DownloadingRequests;
+	TArray<FFrameStruct> DownloadingRequests;
 
 	int64 TotalSize;
-
-	FFrameStruct LastFrame;
 };
