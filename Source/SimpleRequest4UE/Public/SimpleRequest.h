@@ -11,6 +11,8 @@
 #define FRAME_LENGTH 10485760
 #define MAX_FAILURE_TIMES 3
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFrameStatusChange,int32,Index);
+
 UENUM(BlueprintType)
 enum ERequestStatus
 {
@@ -29,7 +31,7 @@ USTRUCT(BlueprintType)
 struct FFrameStruct
 {
 	GENERATED_BODY()
-	FFrameStruct(const int64 StartOffset, const int64 EndOffset): StartOffset(StartOffset), EndOffset(EndOffset)
+	FFrameStruct(const int64 StartOffset, const int64 EndOffset): StartOffset(StartOffset), EndOffset(EndOffset),CurrentSize(0)
 	{
 	}
 
@@ -37,19 +39,27 @@ struct FFrameStruct
 	{
 		StartOffset = Other.StartOffset;
 		EndOffset = Other.EndOffset;
+		CurrentSize=Other.CurrentSize;
+		FrameStatus=Other.FrameStatus;
 	}
 
-	FFrameStruct(): StartOffset(0), EndOffset(0)
+	FFrameStruct(): StartOffset(0), EndOffset(0),CurrentSize(0)
 	{
 	}
 
 public:
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly)
 	int64 StartOffset;
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly)
 	int64 EndOffset;
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly)
 	int32 CurrentSize;
+	
 	TArray<uint8> FrameData;
 	TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> Request;
-	ERequestStatus FrameStatus = Init;
+
+	UPROPERTY(VisibleAnywhere,BlueprintReadOnly)
+	TEnumAsByte<ERequestStatus> FrameStatus = Init;
 public:
 	friend bool operator==(const FFrameStruct& Lhs, const FFrameStruct& RHS)
 	{
@@ -71,7 +81,7 @@ public:
 	{
 		return Lhs.StartOffset > RHS.StartOffset;
 	}
-
+	
 	FString ToString() const
 	{
 		return FString::Printf(TEXT("bytes=%lld-%lld"), StartOffset, EndOffset);
@@ -82,7 +92,7 @@ public:
 		return StartOffset < EndOffset;
 	}
 
-	FFrameStruct GetNextFrame(const int32 MaxSize, const int32 FrameLength = FRAME_LENGTH) const
+	FFrameStruct GetNextFrame(const int64 MaxSize, const int32 FrameLength = FRAME_LENGTH) const
 	{
 		if (StartOffset + FrameLength >= MaxSize)
 		{
@@ -133,10 +143,19 @@ public:
 	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Data")
 	int64 GetAlreadyDownloadedSize() const;
 
+	UFUNCTION(BlueprintCallable,Category="SimpleRequest|Data")
+	int64 GetTotalDownloadedSize() const;
+
 	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Data")
-	FORCEINLINE float GetProgress() const { return TotalSize > 0 ? GetAlreadyDownloadedSize() / TotalSize : 0; }
+	FORCEINLINE float GetProgress() const { return TotalSize > 0 ? GetTotalDownloadedSize() / static_cast<float>(TotalSize) : 0; }
 
 public:
+
+	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Setting")
+	FORCEINLINE void SetIfOverwriteData(const bool bIfOverwriteData) { bOverWriteData=bIfOverwriteData; }
+
+	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Setting")
+	FORCEINLINE bool IfOverwriteData() const { return bOverWriteData; }
 
 	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Setting")
 	FORCEINLINE void SetSavePath(const FString& InSavePath) { SavePath = InSavePath; }
@@ -162,6 +181,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Setting")
 	FORCEINLINE ERequestStatus GetStatus() const { return Status; }
 
+	UFUNCTION(BlueprintCallable,Category="SimpleRequest|Misc")
+	FORCEINLINE TArray<FFrameStruct>& GetDownloadingRequests(){return DownloadingRequests;}
+
+public:
+	virtual void OnClusterMarkedAsPendingKill() override;
+
 protected:
 	bool DumpCacheToFile();
 	void StartMainDownload();
@@ -177,7 +202,13 @@ protected:
 	                                   int32 BytesReceived);
 	void SetStatusToFail();
 
+public:
+	UPROPERTY(BlueprintCallable,BlueprintAssignable)
+	FOnFrameStatusChange OnFrameStatusChange;
+
 private:
+	bool bOverWriteData;
+	
 	FString SavePath;
 	FString Filename;
 
@@ -189,6 +220,8 @@ private:
 	int32 FailedTime;
 
 	TSharedPtr<IHttpRequest, ESPMode::ThreadSafe> HeadRequest;
+
+	UPROPERTY()
 	TArray<FFrameStruct> DownloadingRequests;
 
 	int64 TotalSize;
