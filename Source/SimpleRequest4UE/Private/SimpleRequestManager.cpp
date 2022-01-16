@@ -45,5 +45,6 @@ bool USimpleRequestManager::AddRequest(const FString& InURL, FGuid& OutGuid)
 	USimpleRequest* SimpleRequest=Requests.Add(OutGuid,NewObject<USimpleRequest>());
 	SimpleRequest->SetURL(InURL);
 	SimpleRequest->AddToRoot();
+	SimpleRequest->StartDownload();
 	return true;
 }
