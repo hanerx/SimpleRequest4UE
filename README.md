@@ -26,7 +26,7 @@ This is a simple plugin for download file using HTTP, This plugin is build under
 
 Use Blueprint to download single file is very simple just do it as follow
 
-![image-20220116145205274](.\Resources\image-20220116145205274.png)
+![image-20220116145205274](Resources/image-20220116145205274.png)
 
 ### With C++ Code
 
