@@ -6,7 +6,7 @@
 #include "HttpModule.h"
 #include "Interfaces/IHttpResponse.h"
 
-USimpleRequest::USimpleRequest()
+USimpleRequest::USimpleRequest():SavePath(FPaths::ProjectSavedDir()/TEXT("SimpleRequest"))
 {
 }
 
@@ -115,9 +115,13 @@ bool USimpleRequest::DumpCacheToFile()
 			return false;
 		}
 	}
-	if (!FFileHelper::SaveArrayToFile(TArray<uint8>(), *GetFullSavePath()))
+	if(!FPaths::FileExists(*GetFullSavePath()))
 	{
-		return false;
+		if (!FFileHelper::SaveArrayToFile(TArray<uint8>(), *GetFullSavePath()))
+		{
+			UE_LOG(LogTemp,Warning,TEXT("Cannot Create File %s"),*GetFullSavePath())
+			return false;
+		}
 	}
 	for (auto& FrameStruct:DownloadingRequests)
 	{
@@ -129,8 +133,10 @@ bool USimpleRequest::DumpCacheToFile()
 		if (!FFileHelper::SaveArrayToFile(FrameStruct.FrameData, *GetFullSavePath(), &IFileManager::Get(),
 		                                  EFileWrite::FILEWRITE_Append))
 		{
+			UE_LOG(LogTemp,Warning,TEXT("Cannot Save Frame To File %s"),*FrameStruct.ToString())
 			return false;
 		}
+		UE_LOG(LogTemp,Display,TEXT("Frame=%s Save To File %s"),*FrameStruct.ToString(),*GetFullSavePath())
 		FrameStruct.FrameData.Empty();
 		FrameStruct.FrameStatus=Success;
 	}
@@ -142,8 +148,12 @@ void USimpleRequest::StartMainDownload()
 	int32 Flag=0;
 	for(int32 Index=0;Index<DownloadingRequests.Num();Index++)
 	{
-		auto& FrameStruct=DownloadingRequests[Index];
-		if(FrameStruct.FrameStatus>Init&&FrameStruct.FrameStatus<Success)
+		FFrameStruct& FrameStruct=DownloadingRequests[Index];
+		if(FrameStruct.FrameStatus==Success||FrameStruct.FrameStatus==WaitForDump)
+		{
+			continue;
+		}
+		if(FrameStruct.FrameStatus>Init&&FrameStruct.FrameStatus<=Downloading)
 		{
 			Flag++;
 		}
@@ -156,14 +166,20 @@ void USimpleRequest::StartMainDownload()
 			FrameStruct.Request->OnProcessRequestComplete().BindLambda(
 				[this,Index,FrameStruct](FHttpRequestPtr Request, FHttpResponsePtr Response, bool bConnectedSuccessfully)
 				{
-					this->OnFrameRequestComplete(FrameStruct,Index, Request, Response, bConnectedSuccessfully);
-					FrameStruct.Request->OnProcessRequestComplete().Unbind();
-					FrameStruct.Request->OnRequestProgress().Unbind();
+					this->OnFrameRequestComplete(DownloadingRequests[Index],Index, Request, Response, bConnectedSuccessfully);
+					if(FrameStruct.Request.IsValid())
+					{
+						FrameStruct.Request->OnProcessRequestComplete().Unbind();
+						FrameStruct.Request->OnRequestProgress().Unbind();
+					}
 				});
 			FrameStruct.Request->OnRequestProgress().BindLambda(
-				[this,Index,FrameStruct](FHttpRequestPtr Request, int32 BytesSent, int32 BytesReceived)
+				[this,Index](FHttpRequestPtr Request, int32 BytesSent, int32 BytesReceived)
 				{
-					this->OnFrameRequestProcess(FrameStruct,Index, Request, BytesSent, BytesReceived);
+					if(this)
+					{
+						this->OnFrameRequestProcess(DownloadingRequests[Index],Index, Request, BytesSent, BytesReceived);
+					}
 				});
 			FrameStruct.Request->ProcessRequest();
 			FrameStruct.FrameStatus=Downloading;
@@ -188,9 +204,10 @@ void USimpleRequest::GenerateFrameStructs()
 	{
 		return;
 	}
-	FFrameStruct FrameStruct=FFrameStruct(GetDownloadContent().Num(),GetDownloadContent().Num()+FrameLength<TotalSize?GetDownloadContent().Num()+FrameLength:TotalSize);
+	FFrameStruct FrameStruct=FFrameStruct(GetDownloadContent().Num(),GetDownloadContent().Num()+FrameLength-1<TotalSize?GetDownloadContent().Num()+FrameLength-1:TotalSize);
 	while (FrameStruct.IsValid())
 	{
+		UE_LOG(LogTemp,Display,TEXT("Create Frame %s"),*FrameStruct.ToString())
 		DownloadingRequests.Add(FrameStruct);
 		FrameStruct=FrameStruct.GetNextFrame(TotalSize,FrameLength);
 	}
@@ -230,6 +247,7 @@ void USimpleRequest::OnFrameRequestComplete(FFrameStruct& FrameStruct,int32 Inde
 		FrameStruct.Request.Reset();
 		return;
 	}
+	UE_LOG(LogTemp,Display,TEXT("URL=%s, Bytes=%s Download Success"),*URL,*FrameStruct.ToString())
 	FrameStruct.FrameData=Response->GetContent();
 	FrameStruct.FrameStatus=WaitForDump;
 	FrameStruct.Request.Reset();
@@ -239,6 +257,7 @@ void USimpleRequest::OnFrameRequestComplete(FFrameStruct& FrameStruct,int32 Inde
 
 void USimpleRequest::OnFrameRequestProcess(FFrameStruct& FrameStruct,int32 Index, FHttpRequestPtr Request, int32 BytesSent, int32 BytesReceived)
 {
+	UE_LOG(LogTemp,Display,TEXT("URL=%s, Bytes=%s, ReceivedBytes=%d"),*URL,*FrameStruct.ToString(),BytesReceived)
 	FrameStruct.CurrentSize=BytesReceived;
 }
 

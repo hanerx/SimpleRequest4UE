@@ -25,7 +25,7 @@ enum ERequestStatus
 	EndOfStatus
 };
 
-USTRUCT()
+USTRUCT(BlueprintType)
 struct FFrameStruct
 {
 	GENERATED_BODY()
@@ -98,7 +98,7 @@ public:
  * The main struct for request
  * 
  */
-UCLASS()
+UCLASS(BlueprintType,Blueprintable)
 class SIMPLEREQUEST4UE_API USimpleRequest : public UObject
 {
 	GENERATED_BODY()
@@ -137,11 +137,6 @@ public:
 	FORCEINLINE float GetProgress() const { return TotalSize > 0 ? GetAlreadyDownloadedSize() / TotalSize : 0; }
 
 public:
-	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Setting")
-	FORCEINLINE void SetIfDownloadToFile(const bool bIfDownloadToFile) { bDownloadToFile = bIfDownloadToFile; }
-
-	UFUNCTION(BlueprintCallable, Category="SimpleReques|Setting")
-	FORCEINLINE bool GetIfDownloadToFile() const { return bDownloadToFile; }
 
 	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Setting")
 	FORCEINLINE void SetSavePath(const FString& InSavePath) { SavePath = InSavePath; }
@@ -156,7 +151,13 @@ public:
 	FORCEINLINE FString GetURL() const { return URL; }
 
 	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Setting")
-	FORCEINLINE FString GetFullSavePath() const { return SavePath / FileName; }
+	FORCEINLINE FString GetFullSavePath() const { return SavePath / GetFilename(); }
+
+	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Setting")
+	FORCEINLINE FString GetFilename() const { return Filename.IsEmpty() ? FPaths::GetCleanFilename(URL) : Filename; }
+
+	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Setting")
+	FORCEINLINE void SetFilename(const FString& InFilename) { Filename=InFilename; }
 
 	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Setting")
 	FORCEINLINE ERequestStatus GetStatus() const { return Status; }
@@ -177,9 +178,8 @@ protected:
 	void SetStatusToFail();
 
 private:
-	bool bDownloadToFile;
 	FString SavePath;
-	FString FileName;
+	FString Filename;
 
 	int32 FrameLength = FRAME_LENGTH;
 	int32 MaxThreat = MAX_THREAT_FOR_REQUEST;
