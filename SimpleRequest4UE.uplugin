@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
-	"Version": 2,
-	"VersionName": "0.0.2",
+	"Version": 3,
+	"VersionName": "0.0.3",
 	"FriendlyName": "SimpleRequest4UE",
 	"Description": "A simple multi threat http request downloder for ue",
 	"Category": "NetWork",
