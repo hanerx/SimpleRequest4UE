@@ -41,6 +41,7 @@ void USimpleRequest::StartDownload()
 	}
 	else
 	{
+		CreateDownloadFile();
 		GenerateFrameStructs();
 		StartMainDownload();
 	}
@@ -107,18 +108,31 @@ TArray<uint8> USimpleRequest::GetDownloadContent() const
 	return OutData;
 }
 
-int64 USimpleRequest::GetAlreadyDownloadedSize() const
+int64 USimpleRequest::GetSavedSize() const
 {
 	const int64 Size = FPlatformFileManager::Get().GetPlatformFile().FileSize(*GetFullSavePath());
 	return Size > 0 ? Size : 0;
 }
 
-int64 USimpleRequest::GetTotalDownloadedSize() const
+int64 USimpleRequest::GetCachedSize() const
 {
 	int64 TotalDownloadedSize = 0;
 	for (const auto& FrameStruct : DownloadingRequests)
 	{
 		TotalDownloadedSize += FrameStruct.CurrentSize;
+	}
+	return TotalDownloadedSize;
+}
+
+int64 USimpleRequest::GetTotalDownloadedSize() const
+{
+	int64 TotalDownloadedSize = GetSavedSize();
+	for (const auto& FrameStruct : DownloadingRequests)
+	{
+		if(FrameStruct.FrameStatus==Downloading||FrameStruct.FrameStatus==WaitForDump)
+		{
+			TotalDownloadedSize += FrameStruct.CurrentSize;
+		}
 	}
 	return TotalDownloadedSize;
 }
@@ -134,21 +148,6 @@ void USimpleRequest::OnClusterMarkedAsPendingKill()
 
 bool USimpleRequest::DumpCacheToFile()
 {
-	if (!FPaths::DirectoryExists(SavePath))
-	{
-		if (!FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*SavePath))
-		{
-			return false;
-		}
-	}
-	if (!FPaths::FileExists(*GetFullSavePath()))
-	{
-		if (!FFileHelper::SaveArrayToFile(TArray<uint8>(), *GetFullSavePath()))
-		{
-			UE_LOG(LogTemp, Warning, TEXT("Cannot Create File %s"), *GetFullSavePath())
-			return false;
-		}
-	}
 	for (auto& FrameStruct : DownloadingRequests)
 	{
 		if (!FrameStruct.IsValid() || FPlatformFileManager::Get().GetPlatformFile().FileSize(*GetFullSavePath()) !=
@@ -160,6 +159,7 @@ bool USimpleRequest::DumpCacheToFile()
 		                                  EFileWrite::FILEWRITE_Append))
 		{
 			UE_LOG(LogTemp, Warning, TEXT("Cannot Save Frame To File %s"), *FrameStruct.ToString())
+			OnRequestError.Broadcast(Error,FString::Printf(TEXT("Cannot Save Frame To File, Path=%s, %s"),*GetFullSavePath(),*FrameStruct.ToString()));
 			return false;
 		}
 		UE_LOG(LogTemp, Display, TEXT("Frame=%s Save To File %s"), *FrameStruct.ToString(), *GetFullSavePath())
@@ -168,6 +168,30 @@ bool USimpleRequest::DumpCacheToFile()
 		OnFrameStatusChange.Broadcast(DownloadingRequests.IndexOfByKey(FrameStruct));
 	}
 	return true;
+}
+
+void USimpleRequest::CreateDownloadFile()
+{
+	if (!FPaths::DirectoryExists(SavePath))
+	{
+		if (!FPlatformFileManager::Get().GetPlatformFile().CreateDirectoryTree(*SavePath))
+		{
+			//TODO: UE_LOG
+			OnRequestError.Broadcast(Error,FString::Printf(TEXT("Cannot Create Directory For Download, Path=%s"),*SavePath));
+			return;
+		}
+	}
+	if (!FPaths::FileExists(*GetFullSavePath())||(bOverWriteData&&!bFlag))
+	{
+		if (!FFileHelper::SaveArrayToFile(TArray<uint8>(), *GetFullSavePath()))
+		{
+			//TODO: UE_LOG LogSimpleRequest
+			UE_LOG(LogTemp, Warning, TEXT("Cannot Create File %s"), *GetFullSavePath())
+			OnRequestError.Broadcast(Error,FString::Printf(TEXT("Cannot Create File For Download, Path=%s"),*GetFullSavePath()));
+			return;
+		}
+		bFlag=true;
+	}
 }
 
 void USimpleRequest::StartMainDownload()
@@ -231,9 +255,9 @@ void USimpleRequest::GenerateFrameStructs()
 	{
 		return;
 	}
-	FFrameStruct FrameStruct = FFrameStruct(GetAlreadyDownloadedSize(),
-	                                        GetAlreadyDownloadedSize() + FrameLength - 1 < TotalSize
-		                                        ? GetDownloadContent().Num() + FrameLength - 1
+	FFrameStruct FrameStruct = FFrameStruct(GetSavedSize(),
+	                                        GetSavedSize() + FrameLength - 1 < TotalSize
+		                                        ? GetSavedSize() + FrameLength - 1
 		                                        : TotalSize);
 	while (FrameStruct.IsValid())
 	{
@@ -259,6 +283,7 @@ void USimpleRequest::OnHeadRequestComplete(FHttpRequestPtr Request, FHttpRespons
 	if (bConnectedSuccessfully)
 	{
 		HeadRequest.Reset();
+		CreateDownloadFile();
 		GenerateFrameStructs();
 		StartMainDownload();
 	}
@@ -278,6 +303,7 @@ void USimpleRequest::OnFrameRequestComplete(FFrameStruct& FrameStruct, int32 Ind
 		FrameStruct.FrameStatus = Failed;
 		FrameStruct.Request.Reset();
 		OnFrameStatusChange.Broadcast(Index);
+		OnRequestError.Broadcast(Error,FString::Printf(TEXT("Frame Download Fail, %s"),*FrameStruct.ToString()));
 		return;
 	}
 	UE_LOG(LogTemp, Display, TEXT("URL=%s, Bytes=%s Download Success"), *URL, *FrameStruct.ToString())
@@ -290,6 +316,7 @@ void USimpleRequest::OnFrameRequestComplete(FFrameStruct& FrameStruct, int32 Ind
 	{
 		UE_LOG(LogTemp, Display, TEXT("URL=%s Download Complete"), *URL)
 		Status = Success;
+		OnRequestComplete.Broadcast();
 		return;
 	}
 	StartMainDownload();

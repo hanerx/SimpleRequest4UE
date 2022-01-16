@@ -7,11 +7,22 @@
 #include "UObject/Object.h"
 #include "SimpleRequest.generated.h"
 
-#define MAX_THREAT_FOR_REQUEST 4
+#define MAX_THREAT_FOR_REQUEST 16
 #define FRAME_LENGTH 10485760
 #define MAX_FAILURE_TIMES 3
 
+UENUM(BlueprintType)
+enum ERequestErrorType
+{
+	Notice,
+	Warning,
+	Error,
+	Fatal
+};
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnFrameStatusChange,int32,Index);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnRequestError,ERequestErrorType,ErrorType,FString,ErrorMessage);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnRequestComplete);
 
 UENUM(BlueprintType)
 enum ERequestStatus
@@ -141,7 +152,10 @@ public:
 	FORCEINLINE int64 GetTotalSize() const { return TotalSize; }
 
 	UFUNCTION(BlueprintCallable, Category="SimpleRequest|Data")
-	int64 GetAlreadyDownloadedSize() const;
+	int64 GetSavedSize() const;
+
+	UFUNCTION(BlueprintCallable,Category="SimpleRequest|Data")
+	int64 GetCachedSize() const;
 
 	UFUNCTION(BlueprintCallable,Category="SimpleRequest|Data")
 	int64 GetTotalDownloadedSize() const;
@@ -189,6 +203,7 @@ public:
 
 protected:
 	bool DumpCacheToFile();
+	void CreateDownloadFile();
 	void StartMainDownload();
 	void StartHeadDownload();
 	void GenerateFrameStructs();
@@ -206,8 +221,15 @@ public:
 	UPROPERTY(BlueprintCallable,BlueprintAssignable)
 	FOnFrameStatusChange OnFrameStatusChange;
 
+	UPROPERTY(BlueprintCallable,BlueprintAssignable)
+	FOnRequestError OnRequestError;
+
+	UPROPERTY(BlueprintCallable,BlueprintAssignable)
+	FOnRequestComplete OnRequestComplete;
+
 private:
 	bool bOverWriteData;
+	bool bFlag;
 	
 	FString SavePath;
 	FString Filename;
