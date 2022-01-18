@@ -5,6 +5,7 @@
 
 #include "HttpModule.h"
 #include "Interfaces/IHttpResponse.h"
+#include "Kismet/KismetSystemLibrary.h"
 
 USimpleRequest::USimpleRequest(): SavePath(FPaths::ProjectSavedDir() / TEXT("SimpleRequest"))
 {
@@ -81,7 +82,17 @@ bool USimpleRequest::Retry()
 	{
 		return false;
 	}
-	return false;
+	FailedTime++;
+	for(int32 i=0;i<DownloadingRequests.Num();i++)
+	{
+		FFrameStruct& FrameStruct=DownloadingRequests[i];
+		if(FrameStruct.FrameStatus==Failed)
+		{
+			FrameStruct.FrameStatus=Init;
+		}
+	}
+	StartMainDownload();
+	return true;
 }
 
 FString USimpleRequest::GetDownloadContentAsString() const
@@ -303,7 +314,15 @@ void USimpleRequest::OnFrameRequestComplete(FFrameStruct& FrameStruct, int32 Ind
 		FrameStruct.FrameStatus = Failed;
 		FrameStruct.Request.Reset();
 		OnFrameStatusChange.Broadcast(Index);
-		OnRequestError.Broadcast(Error,FString::Printf(TEXT("Frame Download Fail, %s"),*FrameStruct.ToString()));
+		if (FailedTime<MAX_FAILURE_TIMES)
+		{
+			FPlatformProcess::Sleep(5.f);
+			Retry();
+		}else
+		{
+			Status=Failed;
+			OnRequestError.Broadcast(Error,FString::Printf(TEXT("Frame Download Fail, %s"),*FrameStruct.ToString()));
+		}
 		return;
 	}
 	UE_LOG(LogTemp, Display, TEXT("URL=%s, Bytes=%s Download Success"), *URL, *FrameStruct.ToString())

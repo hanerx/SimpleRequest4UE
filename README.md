@@ -12,7 +12,7 @@ This is a simple plugin for download file using HTTP, This plugin is build under
 - [x] download file
 - [x] multi threat
 - [x] frame download
-- [ ] auto retry
+- [x] auto retry
 - [ ] static download manager
 - [ ] global config
 
